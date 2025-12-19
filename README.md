@@ -246,19 +246,42 @@ Smart Router:
 
 ### Setup
 
+The hooks are already compiled and ready to use! If you need to modify them:
+
 ```bash
 cd smart-router/hooks
+
+# Install dependencies (already done if node_modules/ exists)
 pnpm install
+
+# Recompile TypeScript after changes
+npx tsc
 ```
 
 ### Testing Hooks
 
-```bash
-# Test SessionStart hook
-./hooks/test-session-start.sh
+Hooks run automatically when Claude Code triggers their events. To manually test:
 
-# Test UserPromptSubmit hook
-echo '{"prompt": "I need code review"}' | node hooks/routing-detector.ts
+**Test Registry Builder (runs on SessionStart):**
+```bash
+cd smart-router/hooks
+echo '{"session_id":"test","cwd":"/tmp"}' | node registry-builder.js
+```
+
+**Test Routing Detector (runs on UserPromptSubmit):**
+```bash
+cd smart-router/hooks
+echo '{"prompt":"I need code review","cwd":"/tmp"}' | node routing-detector.js
+```
+
+**See hooks in action:**
+```bash
+# Install the plugin and start a session - hooks run automatically!
+/plugin marketplace add Blockchain-Oracle/smart-router
+/plugin install smart-router@smart-router-marketplace
+
+# Registry builds on session start (SessionStart hook)
+# Routing suggestions appear when you ask for help (UserPromptSubmit hook)
 ```
 
 ## Troubleshooting
