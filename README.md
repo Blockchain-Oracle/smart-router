@@ -221,11 +221,12 @@ Useful after:
 
 ### Ranking Logic
 
-Tools are ranked by:
-1. **File context** - Game files? Prefer game-dev agents
-2. **User preference** - From `.claude/smart-router.local.md`
-3. **Plugin specialty** - From description keywords
-4. **Alphabetical** - Tie-breaker
+Tools are ranked by (in order of priority):
+1. **User Priority Order** (Highest) - From `.claude/smart-router.local.md` priorityOrder setting
+2. **Tool Specialty** (High) - How well tool description matches the task keywords
+3. **File Context** (Medium) - Game files prefer game-dev agents, etc.
+4. **Tool Type** (Low) - Skills > Agents > Commands > Workflows
+5. **Alphabetical** - Tie-breaker for equal scores
 
 ## Examples
 

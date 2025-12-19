@@ -1,34 +1,44 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs';
-import { join, basename } from 'path';
+/**
+ * Smart Router - Registry Builder Hook
+ * =====================================
+ *
+ * This hook runs on SessionStart to build a capability registry of all
+ * installed plugins, skills, agents, and commands. The registry enables
+ * Smart Router to quickly find relevant tools for user requests.
+ *
+ * Hook Event: SessionStart
+ * Output: Writes agent-registry.json to .claude/.cache/
+ *
+ * @module hooks/registry-builder
+ */
+
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, lstatSync, realpathSync } from 'fs';
+import { join, basename, resolve } from 'path';
 import { createHash } from 'crypto';
 import { homedir } from 'os';
 
-interface PluginManifest {
-    name: string;
-    description?: string;
-    keywords?: string[];
-    agents?: string[];
-    skills?: string[];
-    commands?: string[];
-}
+import type { PluginManifest, PluginManifestWithPath, RegistryEntry, Registry } from './shared/types';
 
-interface RegistryEntry {
-    plugin: string;
-    type: 'skill' | 'agent' | 'command' | 'workflow';
-    entry: string;
-    description: string;
-    source: 'global' | 'local';
-}
+// ============================================================================
+// Configuration
+// ============================================================================
 
-interface Registry {
-    version: string;
-    lastBuilt: string;
-    hash: string;
-    capabilities: Record<string, RegistryEntry[]>;
-}
+/** Maximum directory depth for local command scanning (prevents infinite recursion) */
+const MAX_SCAN_DEPTH = 10;
 
-// Capability keywords mapping
+/**
+ * Capability keywords mapping
+ *
+ * Maps capability names to arrays of keywords that indicate that capability.
+ * When a plugin's description contains any of these keywords, it will be
+ * registered under that capability.
+ *
+ * To add new capabilities:
+ * 1. Add a new key with a descriptive capability name
+ * 2. Add an array of 3-5 specific keywords that strongly indicate that capability
+ * 3. Prefer multi-word phrases over single words to reduce false positives
+ */
 const CAPABILITY_KEYWORDS: Record<string, string[]> = {
     'code-review': ['code review', 'review code', 'pr review', 'pull request review', 'code quality'],
     'brainstorming': ['brainstorm', 'design', 'ideation', 'planning', 'architecture'],
@@ -47,50 +57,142 @@ const CAPABILITY_KEYWORDS: Record<string, string[]> = {
     'conversation-search': ['memory', 'search conversations', 'episodic', 'history'],
 };
 
+// ============================================================================
+// Tracking for Error Aggregation
+// ============================================================================
+
+const scanErrors: { path: string; error: string }[] = [];
+const scanWarnings: string[] = [];
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+/**
+ * Compute a hash of file modification times for cache invalidation
+ */
 function computeHash(paths: string[]): string {
     const hash = createHash('sha256');
     for (const path of paths.sort()) {
-        if (existsSync(path)) {
-            const stat = statSync(path);
-            hash.update(`${path}:${stat.mtimeMs}`);
+        try {
+            if (existsSync(path)) {
+                const stat = statSync(path);
+                hash.update(`${path}:${stat.mtimeMs}`);
+            }
+        } catch (err) {
+            // Skip paths we can't stat
+            scanWarnings.push(`Cannot stat ${path}: ${err}`);
         }
     }
     return hash.digest('hex');
 }
 
-function scanPlugins(pluginDir: string): PluginManifest[] {
-    const manifests: PluginManifest[] = [];
+/**
+ * Safely read a directory, returning empty array on error
+ */
+function safeReaddir(dir: string, context: string): string[] {
+    try {
+        return readdirSync(dir);
+    } catch (err) {
+        scanErrors.push({
+            path: dir,
+            error: `Cannot read ${context}: ${err instanceof Error ? err.message : String(err)}`
+        });
+        return [];
+    }
+}
+
+/**
+ * Safely check if path is a directory
+ */
+function safeIsDirectory(path: string): boolean {
+    try {
+        return statSync(path).isDirectory();
+    } catch (err) {
+        return false;
+    }
+}
+
+/**
+ * Check if a path escapes its expected root (path traversal protection)
+ */
+function isPathSafe(path: string, expectedRoot: string): boolean {
+    try {
+        const realPath = realpathSync(path);
+        const realRoot = realpathSync(expectedRoot);
+        return realPath.startsWith(realRoot);
+    } catch (err) {
+        // If we can't resolve the path, it's not safe
+        return false;
+    }
+}
+
+/**
+ * Scan plugin directories and return manifest information
+ * Includes path traversal protection via symlink and realpath checks
+ */
+function scanPlugins(pluginDir: string): PluginManifestWithPath[] {
+    const manifests: PluginManifestWithPath[] = [];
 
     if (!existsSync(pluginDir)) {
         return manifests;
     }
 
-    // Scan all plugin directories
-    const marketplaces = readdirSync(pluginDir);
+    const marketplaces = safeReaddir(pluginDir, 'plugin directory');
     for (const marketplace of marketplaces) {
         const marketplacePath = join(pluginDir, marketplace);
-        if (!statSync(marketplacePath).isDirectory()) continue;
 
-        const plugins = readdirSync(marketplacePath);
+        // Path traversal protection: verify path stays within plugin directory
+        if (!isPathSafe(marketplacePath, pluginDir)) {
+            scanWarnings.push(`Skipping potential path traversal: ${marketplacePath}`);
+            continue;
+        }
+
+        if (!safeIsDirectory(marketplacePath)) continue;
+
+        const plugins = safeReaddir(marketplacePath, `marketplace ${marketplace}`);
         for (const plugin of plugins) {
             const pluginPath = join(marketplacePath, plugin);
-            if (!statSync(pluginPath).isDirectory()) continue;
 
-            // Find plugin.json in versioned directories
-            const versions = readdirSync(pluginPath);
+            if (!isPathSafe(pluginPath, pluginDir)) {
+                scanWarnings.push(`Skipping potential path traversal: ${pluginPath}`);
+                continue;
+            }
+
+            if (!safeIsDirectory(pluginPath)) continue;
+
+            const versions = safeReaddir(pluginPath, `plugin ${plugin}`);
             for (const version of versions) {
                 const versionPath = join(pluginPath, version);
                 const manifestPath = join(versionPath, '.claude-plugin', 'plugin.json');
 
+                if (!isPathSafe(versionPath, pluginDir)) {
+                    scanWarnings.push(`Skipping potential path traversal: ${versionPath}`);
+                    continue;
+                }
+
                 if (existsSync(manifestPath)) {
                     try {
-                        const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+                        const content = readFileSync(manifestPath, 'utf-8');
+                        const manifest: PluginManifest = JSON.parse(content);
+
+                        if (!manifest.name || typeof manifest.name !== 'string') {
+                            scanErrors.push({
+                                path: manifestPath,
+                                error: 'Invalid manifest: missing or invalid name field'
+                            });
+                            continue;
+                        }
+
                         manifests.push({
                             ...manifest,
-                            _path: versionPath // Store path for component scanning
+                            _path: versionPath
                         });
                     } catch (err) {
-                        console.error(`Failed to parse ${manifestPath}:`, err);
+                        scanErrors.push({
+                            path: manifestPath,
+                            error: `Failed to parse: ${err instanceof Error ? err.message : String(err)}`
+                        });
                     }
                 }
             }
@@ -100,6 +202,9 @@ function scanPlugins(pluginDir: string): PluginManifest[] {
     return manifests;
 }
 
+/**
+ * Infer capabilities from text based on keyword matching
+ */
 function inferCapability(text: string): string[] {
     const capabilities: string[] = [];
     const lowerText = text.toLowerCase();
@@ -108,7 +213,7 @@ function inferCapability(text: string): string[] {
         for (const keyword of keywords) {
             if (lowerText.includes(keyword)) {
                 capabilities.push(capability);
-                break; // Only add each capability once
+                break;
             }
         }
     }
@@ -116,6 +221,9 @@ function inferCapability(text: string): string[] {
     return capabilities;
 }
 
+/**
+ * Extract description from a markdown file (YAML frontmatter or first line)
+ */
 function extractDescription(filePath: string): string {
     try {
         const content = readFileSync(filePath, 'utf-8');
@@ -129,7 +237,7 @@ function extractDescription(filePath: string): string {
             }
         }
 
-        // Fallback: first line of content after frontmatter
+        // Fallback: first non-comment, non-frontmatter line
         const lines = content.split('\n');
         for (const line of lines) {
             const trimmed = line.trim();
@@ -138,11 +246,19 @@ function extractDescription(filePath: string): string {
             }
         }
     } catch (err) {
-        // Ignore errors
+        // Log the error for debugging but return default
+        // This is expected for permission issues or race conditions
+        if (process.env.DEBUG) {
+            console.warn(`Smart Router: Could not read ${filePath}: ${err}`);
+        }
+        scanWarnings.push(`Could not extract description from ${filePath}`);
     }
     return 'No description available';
 }
 
+/**
+ * Build the complete capability registry
+ */
 function buildRegistry(): Registry {
     const registry: Registry = {
         version: '1.0',
@@ -160,12 +276,12 @@ function buildRegistry(): Registry {
     const plugins = scanPlugins(globalPluginDir);
 
     for (const plugin of plugins) {
-        const pluginPath = (plugin as any)._path;
+        const pluginPath = plugin._path;
 
         // Scan agents
         const agentsDir = join(pluginPath, 'agents');
         if (existsSync(agentsDir)) {
-            const agentFiles = readdirSync(agentsDir).filter(f => f.endsWith('.md'));
+            const agentFiles = safeReaddir(agentsDir, `agents in ${plugin.name}`).filter(f => f.endsWith('.md'));
             for (const agentFile of agentFiles) {
                 const agentPath = join(agentsDir, agentFile);
                 const description = extractDescription(agentPath);
@@ -190,9 +306,9 @@ function buildRegistry(): Registry {
         // Scan skills
         const skillsDir = join(pluginPath, 'skills');
         if (existsSync(skillsDir)) {
-            const skillDirs = readdirSync(skillsDir).filter(f => {
+            const skillDirs = safeReaddir(skillsDir, `skills in ${plugin.name}`).filter(f => {
                 const skillPath = join(skillsDir, f);
-                return statSync(skillPath).isDirectory();
+                return safeIsDirectory(skillPath);
             });
 
             for (const skillDir of skillDirs) {
@@ -221,7 +337,7 @@ function buildRegistry(): Registry {
         // Scan commands
         const commandsDir = join(pluginPath, 'commands');
         if (existsSync(commandsDir)) {
-            const commandFiles = readdirSync(commandsDir).filter(f => f.endsWith('.md'));
+            const commandFiles = safeReaddir(commandsDir, `commands in ${plugin.name}`).filter(f => f.endsWith('.md'));
             for (const commandFile of commandFiles) {
                 const commandPath = join(commandsDir, commandFile);
                 const description = extractDescription(commandPath);
@@ -244,35 +360,49 @@ function buildRegistry(): Registry {
         }
     }
 
-    // Scan local commands (e.g., BMAD)
+    // Scan local commands (e.g., BMAD workflows)
     if (existsSync(localCommandDir)) {
-        function scanLocalDir(dir: string, basePath: string = '') {
-            const items = readdirSync(dir);
+        function scanLocalDir(dir: string, basePath: string = '', depth: number = 0) {
+            if (depth > MAX_SCAN_DEPTH) {
+                scanWarnings.push(`Skipping deep directory (depth > ${MAX_SCAN_DEPTH}): ${dir}`);
+                return;
+            }
+
+            const items = safeReaddir(dir, `local commands at depth ${depth}`);
 
             for (const item of items) {
                 const itemPath = join(dir, item);
-                const stat = statSync(itemPath);
 
-                if (stat.isDirectory()) {
-                    // Recursively scan subdirectories
-                    scanLocalDir(itemPath, join(basePath, item));
-                } else if (item.endsWith('.md')) {
-                    const description = extractDescription(itemPath);
-                    const capabilities = inferCapability(description + ' ' + basename(item));
+                try {
+                    const lstat = lstatSync(itemPath);
 
-                    for (const cap of capabilities) {
-                        if (!registry.capabilities[cap]) {
-                            registry.capabilities[cap] = [];
-                        }
-
-                        registry.capabilities[cap].push({
-                            plugin: `local:${basePath.split('/')[0] || 'commands'}`,
-                            type: 'workflow',
-                            entry: join(basePath, item),
-                            description,
-                            source: 'local'
-                        });
+                    // Skip symlinks to prevent circular references
+                    if (lstat.isSymbolicLink()) {
+                        continue;
                     }
+
+                    if (lstat.isDirectory()) {
+                        scanLocalDir(itemPath, join(basePath, item), depth + 1);
+                    } else if (item.endsWith('.md')) {
+                        const description = extractDescription(itemPath);
+                        const capabilities = inferCapability(description + ' ' + basename(item));
+
+                        for (const cap of capabilities) {
+                            if (!registry.capabilities[cap]) {
+                                registry.capabilities[cap] = [];
+                            }
+
+                            registry.capabilities[cap].push({
+                                plugin: `local:${basePath.split('/')[0] || 'commands'}`,
+                                type: 'workflow',
+                                entry: join(basePath, item),
+                                description,
+                                source: 'local'
+                            });
+                        }
+                    }
+                } catch (err) {
+                    scanWarnings.push(`Could not stat ${itemPath}: ${err}`);
                 }
             }
         }
@@ -281,7 +411,7 @@ function buildRegistry(): Registry {
     }
 
     // Compute hash for cache invalidation
-    const pluginPaths = plugins.map(p => (p as any)._path);
+    const pluginPaths = plugins.map(p => p._path);
     if (existsSync(localCommandDir)) {
         pluginPaths.push(localCommandDir);
     }
@@ -289,6 +419,10 @@ function buildRegistry(): Registry {
 
     return registry;
 }
+
+// ============================================================================
+// Main Entry Point
+// ============================================================================
 
 async function main() {
     try {
@@ -308,21 +442,49 @@ async function main() {
         // Check if rebuild is needed
         let shouldRebuild = true;
         if (existsSync(hashPath) && existsSync(registryPath)) {
-            const oldHash = readFileSync(hashPath, 'utf-8').trim();
-            if (oldHash === newRegistry.hash) {
-                shouldRebuild = false;
+            try {
+                const oldHash = readFileSync(hashPath, 'utf-8').trim();
+                if (oldHash === newRegistry.hash) {
+                    shouldRebuild = false;
+                }
+            } catch (err) {
+                // If we can't read the hash, rebuild anyway
+                shouldRebuild = true;
             }
         }
 
         if (shouldRebuild) {
-            // Write registry and hash
-            writeFileSync(registryPath, JSON.stringify(newRegistry, null, 2));
-            writeFileSync(hashPath, newRegistry.hash);
+            // Write registry first
+            try {
+                writeFileSync(registryPath, JSON.stringify(newRegistry, null, 2));
+            } catch (err) {
+                console.error(`Smart Router: Failed to write registry: ${err}`);
+                process.exit(1);
+            }
+
+            // Then write hash
+            try {
+                writeFileSync(hashPath, newRegistry.hash);
+            } catch (err) {
+                console.error(`Smart Router: Failed to write hash: ${err}`);
+                // Registry is already written, so this is a partial failure
+            }
 
             const capCount = Object.keys(newRegistry.capabilities).length;
             const toolCount = Object.values(newRegistry.capabilities).reduce((sum, tools) => sum + tools.length, 0);
 
             console.log(`✅ Smart Router: Registry built - ${capCount} capabilities, ${toolCount} tools`);
+
+            // Report any errors/warnings that occurred during scan
+            if (scanErrors.length > 0) {
+                console.warn(`⚠️  Smart Router: ${scanErrors.length} plugin(s) failed to load:`);
+                for (const { path, error } of scanErrors.slice(0, 5)) {
+                    console.warn(`   - ${basename(path)}: ${error}`);
+                }
+                if (scanErrors.length > 5) {
+                    console.warn(`   ... and ${scanErrors.length - 5} more`);
+                }
+            }
         }
 
         process.exit(0);
