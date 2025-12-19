@@ -47,7 +47,19 @@ claude --plugin-dir ./smart-router
 
 ## Configuration
 
-Create `.claude/smart-router.local.md` in your project:
+### Quick Setup (Recommended)
+
+Use the interactive configuration command:
+
+```bash
+/smart-router:configure
+```
+
+This will guide you through setting up your preferences with questions and validation.
+
+### Manual Setup
+
+Alternatively, create `.claude/smart-router.local.md` manually:
 
 ```yaml
 ---
@@ -79,6 +91,20 @@ You: "I need a code review"
 → Auto-routes to best code review tool
 → Review happens seamlessly
 ```
+
+### Configuration Setup
+
+Set up your routing preferences interactively:
+
+```bash
+/smart-router:configure
+```
+
+Guides you through:
+- Routing mode selection (auto/ask/context)
+- Display preferences (show reasoning)
+- Priority order (preferred plugins)
+- Exclusions (plugins to ignore)
 
 ### Manual Registry Rebuild
 
