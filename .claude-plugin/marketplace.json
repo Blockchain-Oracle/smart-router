@@ -1,0 +1,31 @@
+{
+  "name": "smart-router",
+  "displayName": "Smart Router",
+  "description": "Plugin discovery and context-aware routing system for Claude Code",
+  "longDescription": "Smart Router automatically discovers all your installed plugins (21+ plugins including superpowers, pr-review-toolkit, BMAD, etc.) and intelligently routes you to the best tool based on your task context and preferences. Supports auto-routing, interactive menus, and context-aware selection.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Blockchain Oracle",
+    "email": "BlockchainOracle.dev@gmail.com"
+  },
+  "homepage": "https://github.com/Blockchain-Oracle/smart-router",
+  "repository": "https://github.com/Blockchain-Oracle/smart-router",
+  "license": "MIT",
+  "keywords": [
+    "routing",
+    "discovery",
+    "orchestration",
+    "plugin-management",
+    "context-aware",
+    "automation",
+    "workflow"
+  ],
+  "category": "productivity",
+  "tags": [
+    "routing",
+    "discovery",
+    "automation"
+  ],
+  "screenshots": [],
+  "readme": "README.md"
+}
