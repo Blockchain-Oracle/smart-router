@@ -16,7 +16,7 @@
       "author": {
         "name": "Blockchain Oracle"
       },
-      "source": ".",
+      "source": "./",
       "category": "productivity",
       "tags": ["routing", "discovery", "automation", "orchestration", "plugin-management"],
       "keywords": ["routing", "discovery", "orchestration", "plugin-management", "context-aware", "automation", "workflow"]
