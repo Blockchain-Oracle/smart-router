@@ -31,18 +31,31 @@ Without Smart Router, Claude Code may not consistently use your installed tools,
 
 ## Installation
 
-### From Marketplace (Coming Soon)
+### From Marketplace (Recommended)
+
+**Step 1: Add the marketplace**
 ```bash
-claude plugin install smart-router
+/plugin marketplace add Blockchain-Oracle/smart-router
+```
+
+**Step 2: Install the plugin**
+```bash
+/plugin install smart-router@smart-router-marketplace
+```
+
+That's it! Smart Router is now active and will automatically discover your plugins on the next session.
+
+### Alternative: Direct Git Clone
+```bash
+# Clone directly to your global plugins directory
+git clone https://github.com/Blockchain-Oracle/smart-router ~/.claude/plugins/smart-router
 ```
 
 ### Local Development
 ```bash
-# Copy to project
-cp -r smart-router /path/to/your/project/.claude-plugin/
-
-# Or test with plugin-dir flag
-claude --plugin-dir ./smart-router
+# Test locally before installing
+cd /path/to/smart-router
+claude --plugin-dir .
 ```
 
 ## Configuration
