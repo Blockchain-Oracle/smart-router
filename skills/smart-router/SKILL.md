@@ -94,7 +94,31 @@ From registry, collect all tools matching the identified capabilities.
 
 Rank tools using this priority order:
 
-**1. File Context (Highest Priority)**
+**1. User Priority Order (Highest Priority)**
+
+If settings define `priorityOrder`, respect it first - user knows their workflow best:
+
+```yaml
+priorityOrder:
+  - superpowers
+  - pr-review-toolkit
+  - feature-dev
+```
+
+**Example:** If user set superpowers first, always prefer superpowers tools when available.
+
+**2. Tool Specialty (High Priority)**
+
+From `description` field, prefer specialized tools:
+- PR-specific reviewer > general code reviewer
+- Game-specific debugger > general debugger
+- Test generator for APIs > general test tool
+
+**Example:** `pr-review-toolkit` (specialized for PR review) ranks higher than generic code reviewer, even if working on game files.
+
+**Why specialty matters:** Specialized tools exist because they're better at specific tasks. Don't override specialty based on file context alone.
+
+**3. File Context (Medium Priority)**
 
 Analyze files in current directory and recently modified files:
 
@@ -106,24 +130,7 @@ Analyze files in current directory and recently modified files:
 *.test.ts, *.spec.js → Prefer testing tools
 ```
 
-**Example:** If working on `.unity` files, rank `bmad:game-dev` higher than generic code reviewers.
-
-**2. User Priority Order (High Priority)**
-
-If settings define `priorityOrder`, respect it:
-
-```yaml
-priorityOrder:
-  - superpowers
-  - pr-review-toolkit
-  - feature-dev
-```
-
-**3. Tool Specialty (Medium Priority)**
-
-From `description` field, prefer specialized tools:
-- PR-specific reviewer > general code reviewer
-- Game-specific debugger > general debugger
+**Example:** When choosing between two game-dev tools with equal specialty, prefer the one matching file context.
 
 **4. Tool Type (Low Priority)**
 
