@@ -90,7 +90,64 @@ priorityOrder:             # Override default ranking
 
 - **`auto`** - Automatically picks best tool, no questions asked (fastest)
 - **`ask`** - Shows menu of options, lets you choose (most control)
-- **context`** - Uses file context to decide automatically (balanced)
+- **`context`** - Uses file context to decide automatically (balanced)
+
+### Early Reminder Hook (New!)
+
+Smart Router now includes an optional UserPromptSubmit hook that reminds Claude to check Smart Router BEFORE making tool decisions.
+
+**What it does:**
+- Fires when you submit task-related prompts (testing, brainstorming, debugging, etc.)
+- Reminds Claude to check Smart Router first
+- Shows registry stats (how many tools available)
+- Trains Claude to always consider all available tools
+
+**Smart filtering:**
+- Only fires on task keywords: test, brainstorm, review, debug, build, design, game, etc.
+- Silent on simple prompts like "what's 2+2" (no spam!)
+- Training mode - builds good habits over time
+
+**Example:**
+
+```
+You: "I want to test my code"
+    ↓
+Hook: "🎯 Before I start, let me check Smart Router first..."
+    ↓
+Claude: [checks Smart Router, sees all testing tools, picks best one]
+```
+
+**Setup:**
+
+The `/smart-router:configure` command now asks if you want to enable the hook. It will:
+1. Read your existing `.claude/settings.json` (if it exists)
+2. **MERGE** the hook configuration (never overwrites existing hooks)
+3. Set up the early reminder hook
+
+**Manual setup:**
+
+If you prefer manual control, add to `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/smart-router-enforcer.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Note:** The merge logic ensures your existing hooks (from other plugins or custom setup) are preserved.
 
 ## Usage
 

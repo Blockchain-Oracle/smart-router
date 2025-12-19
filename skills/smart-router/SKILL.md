@@ -1,6 +1,6 @@
 ---
-name: Smart Router
-description: This skill should be used when multiple tools are available for a task and an intelligent routing decision is needed. Use when the routing-detector hook suggests using this skill, or when the user explicitly asks "which tool should I use" or "what's the best plugin for this". Provides context-aware tool ranking and routing based on file context, user preferences, and tool specialization.
+name: smart-router
+description: Use when multiple tools are available for a task and intelligent routing is needed. Activates when routing-detector hook suggests it, or when user asks "which tool should I use" or "what's the best plugin for this". Provides context-aware tool ranking based on file context, user preferences, and tool specialization.
 version: 0.1.0
 ---
 
