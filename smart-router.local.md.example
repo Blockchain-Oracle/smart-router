@@ -1,0 +1,135 @@
+---
+# Smart Router User Preferences
+# Copy this file to .claude/smart-router.local.md in your project
+
+# ========================================
+# ROUTING BEHAVIOR
+# ========================================
+
+routingMode: context
+# Options:
+#   auto     - Always pick best tool automatically (fastest, no questions)
+#   ask      - Always show ranked menu and let you choose (most control)
+#   context  - Use file context to auto-decide, show brief reasoning (balanced)
+#
+# Recommendation: Start with 'context', switch to 'auto' once comfortable
+
+# ========================================
+# DISPLAY OPTIONS
+# ========================================
+
+showReasoning: true
+# Show why a tool was chosen
+# Set to false for minimal output (just "Routing to X")
+
+# ========================================
+# EXCLUSIONS
+# ========================================
+
+excludePlugins: []
+# Plugins to never suggest
+# Example:
+# excludePlugins:
+#   - ralph-wiggum
+#   - old-deprecated-plugin
+
+# ========================================
+# PRIORITY OVERRIDES
+# ========================================
+
+priorityOrder: []
+# Prefer these plugins in this order (overrides default ranking)
+# Example:
+# priorityOrder:
+#   - superpowers
+#   - pr-review-toolkit
+#   - bmad
+
+# ========================================
+# CONTEXT RULES (ADVANCED)
+# ========================================
+
+contextRules: []
+# Override routing for specific file patterns
+# Example:
+# contextRules:
+#   - filePattern: "*.unity"
+#     preferPlugins: ["bmad"]
+#   - filePattern: "*.test.ts"
+#     preferPlugins: ["superpowers"]
+
+---
+
+# User Preference Examples
+
+## Example 1: Always Auto-Route (Fastest)
+```yaml
+---
+routingMode: auto
+showReasoning: false
+---
+```
+Result: Smart Router picks best tool and uses it immediately, no output
+
+## Example 2: Always Ask (Most Control)
+```yaml
+---
+routingMode: ask
+showReasoning: true
+---
+```
+Result: Always shows ranked menu, you choose which tool
+
+## Example 3: Prefer Superpowers
+```yaml
+---
+routingMode: context
+priorityOrder:
+  - superpowers
+---
+```
+Result: Superpowers tools ranked first when available
+
+## Example 4: Game Development Workflow
+```yaml
+---
+routingMode: auto
+priorityOrder:
+  - bmad
+contextRules:
+  - filePattern: "*.unity"
+    preferPlugins: ["bmad"]
+  - filePattern: "*.cs"
+    preferPlugins: ["bmad"]
+---
+```
+Result: Auto-routes to BMAD for all game development files
+
+## Example 5: Exclude Experimental Plugins
+```yaml
+---
+routingMode: context
+excludePlugins:
+  - experimental-plugin
+  - beta-tool
+---
+```
+Result: Never suggests excluded plugins
+
+# Installation
+
+1. Copy this file:
+```bash
+cp smart-router.local.md.example .claude/smart-router.local.md
+```
+
+2. Edit `.claude/smart-router.local.md` with your preferences
+
+3. Restart Claude Code session (or just continue - settings load on next routing)
+
+# Notes
+
+- Settings file is optional - defaults work well for most users
+- File must be in `.claude/` directory (project-specific)
+- Add `.claude/*.local.md` to .gitignore (don't commit personal preferences)
+- Changes take effect immediately on next routing decision
