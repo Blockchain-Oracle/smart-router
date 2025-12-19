@@ -1,0 +1,27 @@
+# Local settings (user-specific preferences)
+.claude/*.local.md
+
+# Cache files
+.claude/.cache/
+
+# Node modules (for hooks)
+hooks/node_modules/
+hooks/package-lock.json
+
+# Build artifacts
+hooks/dist/
+*.js.map
+
+# Testing
+*.test.json
+test-output/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

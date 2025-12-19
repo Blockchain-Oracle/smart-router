@@ -1,0 +1,17 @@
+{
+  "name": "smart-router",
+  "version": "0.1.0",
+  "description": "Plugin discovery and context-aware routing system. Automatically discovers installed plugins and intelligently routes to the best tool based on task context and user preferences.",
+  "author": {
+    "name": "Blockchain Oracle",
+    "email": "BlockchainOracle.dev@gmail.com"
+  },
+  "keywords": [
+    "routing",
+    "discovery",
+    "orchestration",
+    "plugin-management",
+    "context-aware"
+  ],
+  "license": "MIT"
+}
