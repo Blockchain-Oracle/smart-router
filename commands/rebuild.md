@@ -1,5 +1,4 @@
 ---
-name: rebuild
 description: Force rebuild the plugin registry cache
 argument-hint: (no arguments)
 ---

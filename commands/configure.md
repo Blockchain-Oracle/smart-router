@@ -1,5 +1,4 @@
 ---
-name: configure
 description: Interactive configuration setup for Smart Router preferences
 argument-hint: (no arguments)
 allowed-tools: [Read, Write, AskUserQuestion]
