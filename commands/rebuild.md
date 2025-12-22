@@ -43,13 +43,15 @@ The registry-building process:
 
 ## Execution
 
-Simply invoke the smart-router skill with a request to rebuild:
+Run the registry builder script directly:
 
 ```bash
-Use the smart-router skill and ask it to rebuild the registry
+node scripts/registry-builder.js
 ```
 
-Or trigger a routing operation - the skill will detect missing/stale registry and rebuild automatically:
+This forces a complete rebuild of the registry regardless of hash status.
+
+Alternatively, trigger a routing operation - the smart-router skill will detect missing/stale registry and rebuild automatically:
 
 ```bash
 "Which tool should I use for code review?"
