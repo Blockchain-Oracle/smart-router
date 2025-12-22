@@ -18,7 +18,7 @@ import { join, basename, resolve } from 'path';
 import { createHash } from 'crypto';
 import { homedir } from 'os';
 
-import type { PluginManifest, PluginManifestWithPath, RegistryEntry, Registry } from './shared/types';
+import type { PluginManifest, PluginManifestWithPath, RegistryEntry, Registry, MCPEntry, MCPServerConfig } from './shared/types';
 
 // ============================================================================
 // Configuration
@@ -55,6 +55,116 @@ const CAPABILITY_KEYWORDS: Record<string, string[]> = {
     'backend-development': ['backend', 'api', 'server', 'microservice'],
     'frontend-development': ['frontend', 'ui', 'react', 'component', 'styling'],
     'conversation-search': ['memory', 'search conversations', 'episodic', 'history'],
+};
+
+/**
+ * MCP name to capability mapping
+ *
+ * Since MCPs don't have descriptions, we map known MCP names to their capabilities.
+ * This allows Smart Router to understand what each MCP can do.
+ */
+const MCP_CAPABILITY_MAP: Record<string, { capabilities: string[]; description: string }> = {
+    // Documentation & Research
+    'context7': {
+        capabilities: ['documentation', 'research'],
+        description: 'Library documentation lookup - search docs for any library'
+    },
+
+    // Browser Automation & Visual
+    'playwright': {
+        capabilities: ['browser-automation', 'testing', 'frontend-development', 'screenshots'],
+        description: 'Browser automation by Microsoft - screenshots, testing, form filling, visual validation'
+    },
+    'superpowers-chrome': {
+        capabilities: ['browser-automation', 'frontend-development', 'screenshots', 'debugging'],
+        description: 'Chrome browser control - screenshots, DOM inspection, console logs'
+    },
+    'chrome': {
+        capabilities: ['browser-automation', 'frontend-development', 'screenshots', 'debugging'],
+        description: 'Chrome DevTools Protocol access - screenshots, DOM inspection, console logs'
+    },
+    'puppeteer': {
+        capabilities: ['browser-automation', 'testing', 'screenshots'],
+        description: 'Browser automation for testing and screenshots'
+    },
+
+    // UI Components
+    'shadcn': {
+        capabilities: ['frontend-development', 'ui-components'],
+        description: 'Shadcn UI component library'
+    },
+    '@magicuidesign/mcp': {
+        capabilities: ['frontend-development', 'ui-components'],
+        description: 'Magic UI component library'
+    },
+    'magicui': {
+        capabilities: ['frontend-development', 'ui-components'],
+        description: 'Magic UI component library'
+    },
+
+    // Memory & Context
+    'episodic-memory': {
+        capabilities: ['conversation-search', 'memory'],
+        description: 'Search past conversations and retain memory across sessions'
+    },
+
+    // Database
+    'postgres': {
+        capabilities: ['database'],
+        description: 'PostgreSQL database access'
+    },
+    'sqlite': {
+        capabilities: ['database'],
+        description: 'SQLite database access'
+    },
+    'supabase': {
+        capabilities: ['database', 'backend-development'],
+        description: 'Supabase backend and database'
+    },
+
+    // Git & Version Control
+    'github': {
+        capabilities: ['git', 'code-review'],
+        description: 'GitHub repository access - issues, PRs, code'
+    },
+    'gitlab': {
+        capabilities: ['git', 'code-review'],
+        description: 'GitLab repository access - issues, MRs, code'
+    },
+
+    // Code Search & Review
+    'greptile': {
+        capabilities: ['code-review', 'research'],
+        description: 'AI-powered codebase search and code review'
+    },
+
+    // Project Management
+    'asana': {
+        capabilities: ['project-management'],
+        description: 'Asana project and task management'
+    },
+
+    // Code Intelligence & Semantic Analysis
+    'serena': {
+        capabilities: ['code-review', 'refactoring', 'debugging', 'backend-development', 'frontend-development'],
+        description: 'Semantic code toolkit - IDE-like symbol navigation, find_symbol, find_referencing_symbols, LSP integration for 30+ languages, efficient code retrieval and editing'
+    },
+
+    // Deployment
+    'vercel': {
+        capabilities: ['deployment'],
+        description: 'Vercel deployment and hosting'
+    },
+
+    // Docker
+    'docker': {
+        capabilities: ['deployment', 'containers'],
+        description: 'Docker container management'
+    },
+    'MCP_DOCKER': {
+        capabilities: ['browser-automation', 'testing'],
+        description: 'Docker-based MCP (likely Playwright)'
+    },
 };
 
 // ============================================================================
@@ -257,6 +367,193 @@ function extractDescription(filePath: string): string {
 }
 
 /**
+ * Scan MCP servers from ~/.claude.json
+ */
+function scanMCPs(): MCPEntry[] {
+    const mcps: MCPEntry[] = [];
+    const claudeJsonPath = join(homedir(), '.claude.json');
+
+    if (!existsSync(claudeJsonPath)) {
+        return mcps;
+    }
+
+    try {
+        const content = readFileSync(claudeJsonPath, 'utf-8');
+        const config = JSON.parse(content);
+        const mcpServers = config.mcpServers || {};
+
+        for (const [name, serverConfig] of Object.entries(mcpServers)) {
+            const typedConfig = serverConfig as MCPServerConfig;
+
+            // Look up known MCP capabilities
+            const knownMCP = MCP_CAPABILITY_MAP[name];
+
+            if (knownMCP) {
+                mcps.push({
+                    name,
+                    command: typedConfig.command || 'unknown',
+                    capabilities: knownMCP.capabilities,
+                    description: knownMCP.description
+                });
+            } else {
+                // Unknown MCP - try to infer from name
+                const inferredCaps = inferCapability(name);
+                mcps.push({
+                    name,
+                    command: typedConfig.command || 'unknown',
+                    capabilities: inferredCaps.length > 0 ? inferredCaps : ['general'],
+                    description: `MCP server: ${name}`
+                });
+            }
+        }
+    } catch (err) {
+        scanErrors.push({
+            path: claudeJsonPath,
+            error: `Failed to parse MCP config: ${err instanceof Error ? err.message : String(err)}`
+        });
+    }
+
+    return mcps;
+}
+
+/**
+ * Scan MCP servers provided by plugins via plugin.json mcpServers field
+ */
+function scanPluginMCPsFromManifest(plugins: PluginManifestWithPath[]): MCPEntry[] {
+    const mcps: MCPEntry[] = [];
+
+    for (const plugin of plugins) {
+        if (!plugin.mcpServers) continue;
+
+        for (const [mcpName, serverConfig] of Object.entries(plugin.mcpServers)) {
+            // Look up known MCP capabilities or infer from plugin description
+            const knownMCP = MCP_CAPABILITY_MAP[mcpName] || MCP_CAPABILITY_MAP[plugin.name];
+            const pluginDesc = plugin.description || '';
+
+            if (knownMCP) {
+                mcps.push({
+                    name: mcpName,
+                    command: serverConfig.command || 'unknown',
+                    capabilities: knownMCP.capabilities,
+                    description: knownMCP.description,
+                    source: 'plugin',
+                    providedBy: plugin.name
+                });
+            } else {
+                // Infer capabilities from plugin name, MCP name, and description
+                const inferText = `${mcpName} ${plugin.name} ${pluginDesc}`;
+                const inferredCaps = inferCapability(inferText);
+
+                mcps.push({
+                    name: mcpName,
+                    command: serverConfig.command || 'unknown',
+                    capabilities: inferredCaps.length > 0 ? inferredCaps : ['general'],
+                    description: pluginDesc || `MCP server: ${mcpName} (from ${plugin.name})`,
+                    source: 'plugin',
+                    providedBy: plugin.name
+                });
+            }
+        }
+    }
+
+    return mcps;
+}
+
+/**
+ * Scan MCP servers from .mcp.json files in plugin directories
+ * Some plugins (like official Claude plugins) define MCPs in a separate .mcp.json file
+ */
+function scanPluginMCPsFromMcpJson(plugins: PluginManifestWithPath[]): MCPEntry[] {
+    const mcps: MCPEntry[] = [];
+
+    for (const plugin of plugins) {
+        const mcpJsonPath = join(plugin._path, '.mcp.json');
+
+        if (!existsSync(mcpJsonPath)) continue;
+
+        try {
+            const content = readFileSync(mcpJsonPath, 'utf-8');
+            const mcpConfig = JSON.parse(content);
+
+            for (const [mcpName, serverConfig] of Object.entries(mcpConfig)) {
+                const config = serverConfig as Record<string, unknown>;
+
+                // Look up known MCP capabilities or infer from plugin description
+                const knownMCP = MCP_CAPABILITY_MAP[mcpName] || MCP_CAPABILITY_MAP[plugin.name];
+                const pluginDesc = plugin.description || '';
+
+                // Determine command type (npx, uvx, http, sse)
+                let command = 'unknown';
+                if (config.command) {
+                    command = String(config.command);
+                } else if (config.type === 'http' || config.type === 'sse') {
+                    command = String(config.type);
+                }
+
+                if (knownMCP) {
+                    mcps.push({
+                        name: mcpName,
+                        command,
+                        capabilities: knownMCP.capabilities,
+                        description: knownMCP.description,
+                        source: 'plugin',
+                        providedBy: plugin.name
+                    });
+                } else {
+                    // Infer capabilities from plugin name, MCP name, and description
+                    const inferText = `${mcpName} ${plugin.name} ${pluginDesc}`;
+                    const inferredCaps = inferCapability(inferText);
+
+                    mcps.push({
+                        name: mcpName,
+                        command,
+                        capabilities: inferredCaps.length > 0 ? inferredCaps : ['general'],
+                        description: pluginDesc || `MCP server: ${mcpName} (from ${plugin.name})`,
+                        source: 'plugin',
+                        providedBy: plugin.name
+                    });
+                }
+            }
+        } catch (err) {
+            scanWarnings.push(`Could not parse .mcp.json for ${plugin.name}: ${err}`);
+        }
+    }
+
+    return mcps;
+}
+
+/**
+ * Scan enabled plugins from ~/.claude/settings.json
+ */
+function scanEnabledPlugins(): string[] {
+    const enabled: string[] = [];
+    const settingsPath = join(homedir(), '.claude', 'settings.json');
+
+    if (!existsSync(settingsPath)) {
+        return enabled;
+    }
+
+    try {
+        const content = readFileSync(settingsPath, 'utf-8');
+        const config = JSON.parse(content);
+        const enabledPlugins = config.enabledPlugins || {};
+
+        for (const [pluginName, isEnabled] of Object.entries(enabledPlugins)) {
+            if (isEnabled === true) {
+                enabled.push(pluginName);
+            }
+        }
+    } catch (err) {
+        scanErrors.push({
+            path: settingsPath,
+            error: `Failed to parse settings: ${err instanceof Error ? err.message : String(err)}`
+        });
+    }
+
+    return enabled;
+}
+
+/**
  * Build the complete capability registry
  */
 function buildRegistry(): Registry {
@@ -410,10 +707,55 @@ function buildRegistry(): Registry {
         scanLocalDir(localCommandDir);
     }
 
+    // Scan MCPs from ~/.claude.json (global MCPs)
+    const globalMCPs = scanMCPs();
+
+    // Scan MCPs from plugin.json mcpServers field (superpowers-style)
+    const manifestMCPs = scanPluginMCPsFromManifest(plugins);
+
+    // Scan MCPs from .mcp.json files (official plugins style)
+    const mcpJsonMCPs = scanPluginMCPsFromMcpJson(plugins);
+
+    // Merge all MCPs and deduplicate by name
+    const allMCPsRaw = [...manifestMCPs, ...mcpJsonMCPs, ...globalMCPs];
+    const seenMCPs = new Set<string>();
+    const allMCPs = allMCPsRaw.filter(mcp => {
+        const key = `${mcp.name}:${mcp.providedBy || 'global'}`;
+        if (seenMCPs.has(key)) return false;
+        seenMCPs.add(key);
+        return true;
+    });
+    registry.mcps = allMCPs;
+
+    // Also add MCPs to capabilities for unified lookup
+    for (const mcp of allMCPs) {
+        for (const cap of mcp.capabilities) {
+            if (!registry.capabilities[cap]) {
+                registry.capabilities[cap] = [];
+            }
+
+            registry.capabilities[cap].push({
+                plugin: mcp.providedBy ? `plugin:${mcp.providedBy}:mcp:${mcp.name}` : `mcp:${mcp.name}`,
+                type: 'mcp',
+                entry: mcp.name,
+                description: mcp.description,
+                source: mcp.source === 'plugin' ? 'global' : 'global' // MCPs are always global-level
+            });
+        }
+    }
+
+    // Scan enabled plugins from settings
+    registry.enabledPlugins = scanEnabledPlugins();
+
     // Compute hash for cache invalidation
     const pluginPaths = plugins.map(p => p._path);
     if (existsSync(localCommandDir)) {
         pluginPaths.push(localCommandDir);
+    }
+    // Include MCP config in hash
+    const claudeJsonPath = join(homeDir, '.claude.json');
+    if (existsSync(claudeJsonPath)) {
+        pluginPaths.push(claudeJsonPath);
     }
     registry.hash = computeHash(pluginPaths);
 
@@ -472,8 +814,10 @@ async function main() {
 
             const capCount = Object.keys(newRegistry.capabilities).length;
             const toolCount = Object.values(newRegistry.capabilities).reduce((sum, tools) => sum + tools.length, 0);
+            const mcpCount = newRegistry.mcps?.length || 0;
+            const pluginCount = newRegistry.enabledPlugins?.length || 0;
 
-            console.log(`✅ Smart Router: Registry built - ${capCount} capabilities, ${toolCount} tools`);
+            console.log(`✅ Smart Router: Registry built - ${capCount} capabilities, ${toolCount} tools, ${mcpCount} MCPs, ${pluginCount} enabled plugins`);
 
             // Report any errors/warnings that occurred during scan
             if (scanErrors.length > 0) {

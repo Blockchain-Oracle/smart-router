@@ -15,7 +15,34 @@
 /**
  * Valid types of plugin components that can be registered
  */
-export type PluginType = 'skill' | 'agent' | 'command' | 'workflow';
+export type PluginType = 'skill' | 'agent' | 'command' | 'workflow' | 'mcp';
+
+// ============================================================================
+// MCP Types
+// ============================================================================
+
+/**
+ * MCP server configuration from ~/.claude.json
+ */
+export interface MCPServerConfig {
+    command: string;
+    args?: string[];
+    env?: Record<string, string>;
+}
+
+/**
+ * MCP entry in the registry
+ */
+export interface MCPEntry {
+    name: string;
+    command: string;
+    capabilities: string[];
+    description: string;
+    /** Source of this MCP: 'global' for ~/.claude.json, 'plugin' for plugin-provided */
+    source?: 'global' | 'plugin';
+    /** Plugin name if this MCP is provided by a plugin */
+    providedBy?: string;
+}
 
 /**
  * Source location of a plugin component
@@ -38,6 +65,8 @@ export interface PluginManifest {
     skills?: string[];
     /** List of command identifiers provided by this plugin */
     commands?: string[];
+    /** MCP servers provided by this plugin */
+    mcpServers?: Record<string, MCPServerConfig>;
 }
 
 /**
@@ -81,6 +110,10 @@ export interface Registry {
     hash: string;
     /** Map of capability names to arrays of matching tools */
     capabilities: Record<string, RegistryEntry[]>;
+    /** List of configured MCP servers */
+    mcps?: MCPEntry[];
+    /** List of enabled plugin names */
+    enabledPlugins?: string[];
 }
 
 // ============================================================================

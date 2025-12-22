@@ -1,13 +1,33 @@
 #!/usr/bin/env node
+/**
+ * Smart Router - Routing Detector Hook
+ * =====================================
+ *
+ * This hook runs on UserPromptSubmit to detect if the user's prompt
+ * matches any known capabilities and suggests relevant tools.
+ *
+ * Hook Event: UserPromptSubmit
+ * Input: JSON via stdin with user_prompt field
+ * Output: Routing suggestions printed to stdout
+ *
+ * @module hooks/routing-detector
+ */
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
-// Keywords and intent patterns for detecting routing needs
+import { parseHookInput, parseRegistry } from './shared/types';
+// ============================================================================
+// Routing Triggers Configuration
+// ============================================================================
+/**
+ * Keywords and intent patterns for detecting routing needs.
+ * Each capability maps to keywords (exact matches) and regex patterns (fuzzy matching).
+ */
 const ROUTING_TRIGGERS = {
     'code-review': {
         keywords: ['code review', 'review code', 'review this', 'pr review', 'check code'],
         intentPatterns: [
             /(review|check|analyze|evaluate).*code/i,
-            /(review|analyze).*pr|pull request/i,
+            /(review|analyze).*(pr|pull request)/i,
             /code.*(review|quality|check)/i
         ]
     },
@@ -30,7 +50,7 @@ const ROUTING_TRIGGERS = {
     'debugging': {
         keywords: ['debug', 'fix', 'error', 'bug', 'troubleshoot', 'investigate'],
         intentPatterns: [
-            /(debug|fix|solve|troubleshoot).*error|bug|issue/i,
+            /(debug|fix|solve|troubleshoot).*(error|bug|issue)/i,
             /(investigate|find).*problem/i,
             /(error|bug|issue).*(fix|solve)/i
         ]
@@ -57,40 +77,77 @@ const ROUTING_TRIGGERS = {
         ]
     }
 };
+// ============================================================================
+// Detection Functions
+// ============================================================================
+/**
+ * Detect which capabilities are relevant to the user's prompt
+ */
 function detectCapability(prompt) {
     const matched = [];
     const lowerPrompt = prompt.toLowerCase();
     for (const [capability, triggers] of Object.entries(ROUTING_TRIGGERS)) {
-        // Check keywords
+        // Check keywords first (faster)
         if (triggers.keywords.some(kw => lowerPrompt.includes(kw))) {
             matched.push(capability);
             continue;
         }
-        // Check intent patterns
+        // Check intent patterns (regex matching)
         if (triggers.intentPatterns.some(pattern => pattern.test(prompt))) {
             matched.push(capability);
         }
     }
     return matched;
 }
+// ============================================================================
+// Main Entry Point
+// ============================================================================
 async function main() {
     try {
-        // Read input from stdin
+        // Read and validate input from stdin
         const input = readFileSync(0, 'utf-8');
-        const data = JSON.parse(input);
-        const prompt = data.user_prompt || '';
-        const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
-        const registryPath = join(projectDir, '.claude', '.cache', 'agent-registry.json');
-        // Load registry
-        if (!existsSync(registryPath)) {
-            // Registry not built yet, exit silently
+        const parseResult = parseHookInput(input);
+        if (!parseResult.ok) {
+            console.error(`Smart Router: ${parseResult.error}`);
+            process.exit(1);
+        }
+        const data = parseResult.value;
+        const prompt = data.user_prompt;
+        if (!prompt) {
+            // No prompt to process
             process.exit(0);
         }
-        const registry = JSON.parse(readFileSync(registryPath, 'utf-8'));
-        // Detect capabilities needed
+        const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+        const registryPath = join(projectDir, '.claude', '.cache', 'agent-registry.json');
+        // Check if registry exists
+        if (!existsSync(registryPath)) {
+            // Registry not built - provide helpful message
+            console.log(`\n⚠️  Smart Router: Registry not found.`);
+            console.log(`   Run the registry builder or start a new session to build it.`);
+            console.log(`   Expected location: ${registryPath}\n`);
+            process.exit(0);
+        }
+        // Load and validate registry
+        let registry;
+        try {
+            const content = readFileSync(registryPath, 'utf-8');
+            const registryResult = parseRegistry(content);
+            if (!registryResult.ok) {
+                console.error(`Smart Router: ${registryResult.error}`);
+                console.error(`   Try deleting ${registryPath} and restarting to rebuild.`);
+                process.exit(1);
+            }
+            registry = registryResult.value;
+        }
+        catch (err) {
+            console.error(`Smart Router: Failed to read registry file: ${err}`);
+            console.error(`   Try deleting ${registryPath} and restarting to rebuild.`);
+            process.exit(1);
+        }
+        // Detect capabilities from prompt
         const capabilities = detectCapability(prompt);
         if (capabilities.length === 0) {
-            // No routing needed
+            // No routing needed - prompt doesn't match any known capabilities
             process.exit(0);
         }
         // Collect all matching tools
@@ -102,7 +159,9 @@ async function main() {
             }
         }
         if (allMatches.length === 0) {
-            // No tools found for detected capabilities
+            // Capabilities detected but no tools installed for them
+            console.log(`\nℹ️  Smart Router: Detected capabilities [${capabilities.join(', ')}]`);
+            console.log(`   but no matching tools are installed.\n`);
             process.exit(0);
         }
         // Generate output based on matches
