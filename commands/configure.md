@@ -240,10 +240,41 @@ Your preferences:
 - Priority order: [list or "None"]
 - Exclude plugins: [list or "None"]
 
+Building initial registry cache...
+```
+
+### Step 6: Initialize Registry Cache
+
+After writing settings, initialize the registry cache so it's ready for first use.
+
+1. Ensure `.claude/.cache/` directory exists:
+```bash
+mkdir -p .claude/.cache
+```
+
+2. Run the registry builder script using Bash tool:
+```bash
+node scripts/registry-builder.js
+```
+
+3. Show completion message:
+```
+✅ Registry cache initialized
+
+Cache location: .claude/.cache/agent-registry.json
+
 Settings will take effect on the next routing decision.
 
 To reconfigure: /smart-router:configure
+To rebuild registry: /smart-router:rebuild
 To view settings: cat .claude/smart-router.local.md
+```
+
+**Note:** If the script fails (e.g., plugins not installed yet), show a warning but don't fail the whole configure process:
+```
+⚠️  Registry build skipped (will auto-build on first use)
+
+Settings saved successfully. Registry will be built automatically when Smart Router is first used.
 ```
 
 ## Examples
