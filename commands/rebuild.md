@@ -19,34 +19,52 @@ Force a complete rebuild of the plugin discovery registry.
 
 Run this command when:
 - You installed a new plugin and want it discovered immediately
-- You updated an existing plugin
+- You updated an existing plugin manually (outside package manager)
 - Registry seems stale or missing tools
 - Debugging routing issues
-- SessionStart hook didn't run (rare)
+- You deleted the cache and want to rebuild it
+
+**Note:** Smart Router skill automatically rebuilds registry when:
+- Registry file doesn't exist
+- Plugin hash changes (plugins were added/updated/removed)
+
+So manual rebuild is rarely needed, but useful for troubleshooting.
 
 ## How It Works
 
-This command runs the same registry-builder script that SessionStart hook uses, but forces a complete rebuild regardless of hash status.
+This command triggers the same registry-building logic that the Smart Router skill uses, but forces a complete rebuild regardless of hash status.
+
+The registry-building process:
+1. Scans all plugin directories
+2. Extracts descriptions and capabilities
+3. Computes hash of plugin modification times
+4. Writes registry to `.claude/.cache/agent-registry.json`
+5. Writes hash to `.claude/.cache/plugin-hash.txt`
 
 ## Execution
 
-Run the registry builder script directly:
+Simply invoke the smart-router skill with a request to rebuild:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/hooks/registry-builder.js
+Use the smart-router skill and ask it to rebuild the registry
+```
+
+Or trigger a routing operation - the skill will detect missing/stale registry and rebuild automatically:
+
+```bash
+"Which tool should I use for code review?"
 ```
 
 ## Output
 
 You should see:
 ```
-✅ Smart Router: Registry built - X capabilities, Y tools
+✅ Registry built - X capabilities, Y tools, Z MCPs
 ```
 
 If you see errors, check:
-- Plugin directory permissions
-- `.claude/.cache/` directory exists
-- TypeScript files compiled (`.js` files exist in hooks/)
+- Plugin directory permissions (`~/.claude/plugins/cache/`)
+- `.claude/.cache/` directory exists and is writable
 
 ## Verify Registry
 
@@ -64,26 +82,29 @@ You should see:
 
 ## Troubleshooting
 
-**Command not found:**
-- Ensure smart-router plugin is installed
-- Check hooks/ directory has compiled .js files
-- Verify plugin.json is in .claude-plugin/
-
 **Registry empty:**
 - Check plugins are installed in `~/.claude/plugins/cache/`
 - Verify plugin.json files exist in plugin directories
-- Check capability keywords match (see registry-builder.ts)
+- Ensure plugins have `agents/`, `skills/`, or `commands/` directories
+- Check capability keyword matching (descriptions must contain recognizable keywords)
 
 **Permissions error:**
 - Ensure `.claude/.cache/` directory is writable
 - Check plugin directories are readable
+- Verify `~/.claude.json` is readable (for MCP discovery)
+
+**Tools missing from registry:**
+- Verify plugin is enabled in `~/.claude/settings.json`
+- Check plugin manifest (`.claude-plugin/plugin.json`) exists
+- Ensure tool descriptions contain capability keywords (code-review, testing, etc.)
+- Look for scan errors in output
 
 ## Related
 
-- SessionStart hook (auto-rebuild on session start)
-- `/smart-router:rebuild` - This command
-- Smart Router skill (routing logic)
+- Smart Router skill (auto-rebuilds registry when needed)
+- `/smart-router:configure` - Configure routing preferences
+- `.claude/.cache/agent-registry.json` - Registry output file
 
 ---
 
-After rebuilding, the next user prompt will trigger routing-detector with fresh registry data.
+After rebuilding, the Smart Router skill will use fresh registry data for routing decisions.

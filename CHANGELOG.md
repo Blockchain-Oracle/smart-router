@@ -2,50 +2,57 @@
 
 ## [Unreleased]
 
-### Added
-- **Smart Router Early Reminder Hook** - New optional UserPromptSubmit hook that reminds Claude to check Smart Router BEFORE making tool decisions
-  - Located in `hooks/smart-router-enforcer.py`
-  - Fires on task-related prompts (training mode)
-  - Smart keyword filtering (only fires on relevant prompts)
-  - Shows registry stats and reminds to check Smart Router first
+### BREAKING CHANGES - Hooks Removed
+- **Removed all hooks** - Smart Router no longer uses SessionStart or UserPromptSubmit hooks
+- **Skill-based registry building** - Registry is now built on-demand by the smart-router skill
+  - Automatically rebuilds when registry is missing or plugins changed
+  - Hash-based cache invalidation (only rebuilds when needed)
+  - No background processes or session startup overhead
+- **Simplified configuration** - `/smart-router:configure` now only configures routing preferences (no hook setup)
 
-- **Hook Setup in /configure Command** - The `/smart-router:configure` command now includes optional hook setup
-  - Step 6 asks if user wants to enable the early reminder hook
-  - **MERGE logic** - Never overwrites existing `.claude/settings.json`
-  - Preserves user's existing hooks from other plugins
-  - Option to copy hook script to project for version control
+### Why This Change?
+1. **Cloud Mode Compatibility** - Hooks are not needed with cloud-based initialization (cloud.md handles setup)
+2. **Simpler Architecture** - Fewer moving parts, easier to understand and maintain
+3. **Better Performance** - Registry builds only when actually used (lazy loading)
+4. **Reduced Complexity** - No need to manage hook scripts, TypeScript compilation, or settings.json merging
 
-### Changed
-- Updated `commands/configure.md` with Step 6 for hook configuration
-- Updated `README.md` with Early Reminder Hook section
-- Hook merge logic checks for existing Smart Router hook before adding
-- Changed from PreToolUse to UserPromptSubmit for early decision-making
+### Migration Guide
+- **If upgrading:** No action required! The skill will automatically build the registry on first use
+- **If you configured hooks manually:** You can safely remove them from `.claude/settings.json`
+- **Registry location unchanged:** `.claude/.cache/agent-registry.json` still used for caching
 
 ### Technical Details
 
-**Hook Event: UserPromptSubmit** (not PreToolUse)
-- **Why:** Fires BEFORE Claude makes decisions, not after
-- **Benefit:** Claude checks Smart Router first, sees all available tools
-- **Example:** "I want to test" → hook fires → Claude checks Smart Router → sees all testing tools → picks best one
+**New Architecture:**
+- Smart Router skill (Step 0) checks if registry exists and is current
+- If missing or stale (hash mismatch) → rebuilds automatically
+- Registry building logic moved into skill documentation
+- Same plugin scanning, capability extraction, and hash-based invalidation
+- Performance: Registry builds in <3 seconds, cached for session
 
-**Smart Filtering:**
-- Task keywords: test, brainstorm, review, debug, build, design, game, etc.
-- Silent on simple prompts (no spam on "what's 2+2")
-- Training mode - builds good habits over time
+**Removed Files:**
+- `hooks/registry-builder.ts` - Registry building logic (moved to skill)
+- `hooks/routing-detector.ts` - Routing detection (no longer needed)
+- `hooks/smart-router-enforcer.py` - Early reminder (no longer needed)
+- `hooks/hooks.json` - Hook configuration
+- `hooks/package.json`, `hooks/tsconfig.json` - TypeScript dependencies
 
-**Merge Logic:**
-- Reads existing `.claude/settings.json` if it exists
-- Initializes hooks structure if needed
-- Checks if Smart Router hook already exists
-- Adds hook to UserPromptSubmit array (preserving other hooks)
-- Writes back merged configuration
+**Updated Files:**
+- `skills/smart-router/SKILL.md` - Added Step 0 for registry building
+- `commands/configure.md` - Removed hook setup (Steps 6-6.5)
+- `commands/rebuild.md` - Updated to explain skill-based rebuild
+- `README.md` - Updated architecture diagram and removed hook references
 
-**Hook Behavior:**
-- Fires on task-related prompts only (smart filtering)
-- Silently skips if no registry exists
-- Shows early reminder with registry stats
-- Output added to Claude's context (training)
-- Graceful error handling (never breaks Claude's workflow)
+---
+
+## [Previous Version] - Hook-Based Architecture (Deprecated)
+
+### Added
+- **Smart Router Early Reminder Hook** - Optional UserPromptSubmit hook
+- **Hook Setup in /configure Command** - Hook configuration wizard
+
+### Technical Details (Historical)
+**Note:** This architecture has been replaced with skill-based registry building
 
 ## Previous Releases
 

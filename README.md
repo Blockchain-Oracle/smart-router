@@ -17,9 +17,9 @@ Without Smart Router, Claude Code may not consistently use your installed tools,
 
 ## How It Works
 
-1. **SessionStart Hook** - Scans your plugins on session start, builds a registry
-2. **UserPromptSubmit Hook** - Detects when you need a tool, suggests matches
-3. **Smart Router Skill** - Ranks options by context and routes intelligently
+1. **Smart Router Skill** - On first use, scans your plugins and builds a registry
+2. **Smart Caching** - Registry cached using hash-based invalidation (rebuilds only when plugins change)
+3. **Context-Aware Routing** - Ranks options by context, specialty, and user preferences
 
 ## Features
 
@@ -90,64 +90,7 @@ priorityOrder:             # Override default ranking
 
 - **`auto`** - Automatically picks best tool, no questions asked (fastest)
 - **`ask`** - Shows menu of options, lets you choose (most control)
-- **`context`** - Uses file context to decide automatically (balanced)
-
-### Early Reminder Hook (New!)
-
-Smart Router now includes an optional UserPromptSubmit hook that reminds Claude to check Smart Router BEFORE making tool decisions.
-
-**What it does:**
-- Fires when you submit task-related prompts (testing, brainstorming, debugging, etc.)
-- Reminds Claude to check Smart Router first
-- Shows registry stats (how many tools available)
-- Trains Claude to always consider all available tools
-
-**Smart filtering:**
-- Only fires on task keywords: test, brainstorm, review, debug, build, design, game, etc.
-- Silent on simple prompts like "what's 2+2" (no spam!)
-- Training mode - builds good habits over time
-
-**Example:**
-
-```
-You: "I want to test my code"
-    ↓
-Hook: "🎯 Before I start, let me check Smart Router first..."
-    ↓
-Claude: [checks Smart Router, sees all testing tools, picks best one]
-```
-
-**Setup:**
-
-The `/smart-router:configure` command now asks if you want to enable the hook. It will:
-1. Read your existing `.claude/settings.json` (if it exists)
-2. **MERGE** the hook configuration (never overwrites existing hooks)
-3. Set up the early reminder hook
-
-**Manual setup:**
-
-If you prefer manual control, add to `.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/smart-router-enforcer.py",
-            "timeout": 5
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-**Note:** The merge logic ensures your existing hooks (from other plugins or custom setup) are preserved.
+- **`context`** - Uses file context to decide automatically (balanced, recommended)
 
 ## Usage
 
@@ -191,13 +134,22 @@ Useful after:
 
 ## How Registry Works
 
-### Build Process (SessionStart)
+### Build Process (On-Demand)
 
-1. Scans `~/.claude/plugins/cache/` for installed plugins
-2. Scans `.claude/commands/` for local commands (e.g., BMAD)
-3. Extracts capabilities from plugin manifests and descriptions
-4. Computes hash of plugin directories
-5. Builds `.claude/.cache/agent-registry.json` (if changed)
+The registry is built automatically when the Smart Router skill is invoked:
+
+1. **Check if registry exists** - If `.claude/.cache/agent-registry.json` doesn't exist → build it
+2. **Hash-based cache invalidation** - Compute hash of plugin mtimes, compare to cached hash
+3. **Rebuild if needed** - Only rebuilds when plugins changed (added/updated/removed)
+4. **Scan sources:**
+   - `~/.claude/plugins/cache/` for installed plugins
+   - `.claude/commands/` for local commands (e.g., BMAD workflows)
+   - `~/.claude.json` for global MCPs
+   - Plugin-provided MCPs (from plugin.json mcpServers field)
+5. **Extract capabilities** from descriptions using keyword matching
+6. **Write registry** to `.claude/.cache/agent-registry.json`
+
+**Performance:** Registry builds in <3 seconds, cached for entire session
 
 ### Registry Format
 
@@ -270,11 +222,35 @@ Smart Router:
 
 ```
 ┌─────────────────────────────────────────┐
-│         SessionStart Hook               │
-│   (Build/Update Registry on Start)      │
+│      User: "I need code review"         │
 └─────────────────────────────────────────┘
                     │
                     ▼
+┌─────────────────────────────────────────┐
+│       Smart Router Skill Invoked        │
+│   (Step 0: Build/Update Registry)       │
+└─────────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────┐
+│   Check Registry Cache                  │
+│   - Registry exists?                    │
+│   - Hash matches? (plugins unchanged)   │
+└─────────────────────────────────────────┘
+           │                    │
+      No changes           Plugins changed
+           │                    │
+           ▼                    ▼
+┌─────────────────┐   ┌─────────────────────┐
+│  Use Cached     │   │  Rebuild Registry   │
+│  Registry       │   │  - Scan plugins     │
+│                 │   │  - Extract caps     │
+│                 │   │  - Compute hash     │
+│                 │   │  - Write cache      │
+└─────────────────┘   └─────────────────────┘
+           │                    │
+           └──────────┬─────────┘
+                      ▼
 ┌─────────────────────────────────────────┐
 │      .claude/.cache/                    │
 │        agent-registry.json              │
@@ -283,14 +259,11 @@ Smart Router:
                     │
                     ▼
 ┌─────────────────────────────────────────┐
-│      UserPromptSubmit Hook              │
-│   (Detect Routing Needs)                │
-└─────────────────────────────────────────┘
-                    │
-                    ▼
-┌─────────────────────────────────────────┐
 │       Smart Router Skill                │
 │   (Rank, Select, Route)                 │
+│   - Collect matching tools              │
+│   - Rank by context & preferences       │
+│   - Route to best tool                  │
 └─────────────────────────────────────────┘
 ```
 
@@ -298,66 +271,75 @@ Smart Router:
 
 ### Prerequisites
 
-- Node.js 18+ (for TypeScript hooks)
-- pnpm (for installing dependencies)
 - Claude Code
+- pnpm (optional, for local development)
 
-### Setup
+### Testing Smart Router
 
-The hooks are already compiled and ready to use! If you need to modify them:
+To test the Smart Router skill:
 
+1. **Install the plugin:**
 ```bash
-cd smart-router/hooks
-
-# Install dependencies (already done if node_modules/ exists)
-pnpm install
-
-# Recompile TypeScript after changes
-npx tsc
-```
-
-### Testing Hooks
-
-Hooks run automatically when Claude Code triggers their events. To manually test:
-
-**Test Registry Builder (runs on SessionStart):**
-```bash
-cd smart-router/hooks
-echo '{"session_id":"test","cwd":"/tmp"}' | node registry-builder.js
-```
-
-**Test Routing Detector (runs on UserPromptSubmit):**
-```bash
-cd smart-router/hooks
-echo '{"prompt":"I need code review","cwd":"/tmp"}' | node routing-detector.js
-```
-
-**See hooks in action:**
-```bash
-# Install the plugin and start a session - hooks run automatically!
 /plugin marketplace add Blockchain-Oracle/smart-router
 /plugin install smart-router@smart-router-marketplace
-
-# Registry builds on session start (SessionStart hook)
-# Routing suggestions appear when you ask for help (UserPromptSubmit hook)
 ```
+
+2. **Configure preferences:**
+```bash
+/smart-router:configure
+```
+
+3. **Test routing with a request:**
+```bash
+"I need a code review"
+```
+
+The Smart Router skill will:
+- Build/update the registry on first use
+- Scan your plugins and capabilities
+- Show you matching tools and route to the best one
+
+4. **Verify registry was built:**
+```bash
+cat .claude/.cache/agent-registry.json
+```
+
+You should see a JSON file with discovered plugins and capabilities.
+
+### Manual Registry Rebuild
+
+To force a registry rebuild for testing:
+
+```bash
+/smart-router:rebuild
+```
+
+Or simply invoke the smart-router skill - it will detect changes and rebuild automatically.
 
 ## Troubleshooting
 
 **Registry not building:**
-- Check `.claude/.cache/` directory exists
-- Run `/smart-router:rebuild` manually
-- Check hook logs with `claude --debug`
+- Check `.claude/.cache/` directory exists and is writable
+- Try invoking smart-router skill to trigger rebuild
+- Verify plugin directories are readable (`~/.claude/plugins/cache/`)
+- Check permissions on `~/.claude.json` (for MCP discovery)
 
 **Tools not being suggested:**
-- Verify plugins are installed and enabled
-- Check `.claude/smart-router.local.md` excludePlugins
-- Ensure descriptions match common capability keywords
+- Verify plugins are installed and enabled in `~/.claude/settings.json`
+- Check `.claude/smart-router.local.md` excludePlugins setting
+- Ensure plugin descriptions contain capability keywords (code-review, testing, etc.)
+- Run `/smart-router:rebuild` to force registry refresh
 
 **Wrong tool being selected:**
-- Adjust `priorityOrder` in settings
-- Switch `routingMode` to `ask` to see all options
-- Check file context is being detected correctly
+- Adjust `priorityOrder` in `.claude/smart-router.local.md` settings
+- Switch `routingMode` to `ask` to see all available options
+- Check file context detection (are you in the right directory?)
+- Verify tool descriptions match your task
+
+**Registry seems stale:**
+- Smart Router uses hash-based cache invalidation
+- Registry automatically rebuilds when plugins change
+- To force rebuild: invoke smart-router skill or run `/smart-router:rebuild`
 
 ## Contributing
 

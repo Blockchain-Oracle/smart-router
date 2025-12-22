@@ -36,10 +36,11 @@ Read the registry to see ALL tools available:
 cat .claude/.cache/agent-registry.json 2>/dev/null
 ```
 
-If the registry doesn't exist, trigger a rebuild:
+If the registry doesn't exist, it will be automatically built when Smart Router is first used.
+You can also trigger a rebuild:
 ```bash
-# The registry is built by SessionStart hook
-# If missing, inform the user to restart Claude Code
+# Use smart-router skill or run /smart-router:rebuild
+# Registry builds on-demand when needed
 ```
 
 The registry contains:

@@ -10,13 +10,13 @@ Interactive setup for Smart Router user preferences. Creates or updates `.claude
 
 ## What This Does
 
-Guides you through configuring:
+Guides you through configuring Smart Router user preferences:
 1. **Routing mode** - How Smart Router selects tools (auto/ask/context)
 2. **Display options** - Show reasoning for decisions
-3. **Priority order** - Preferred plugin order
-4. **Exclusions** - Plugins to never suggest
+3. **Priority order** - Preferred plugin order (optional)
+4. **Exclusions** - Plugins to never suggest (optional)
 
-Creates `.claude/smart-router.local.md` with your choices.
+Creates `.claude/smart-router.local.md` with your choices in the current project.
 
 ## Process
 
@@ -321,164 +321,11 @@ Result: Minimal settings file, fully automatic routing
 - If settings file exists and user cancels, don't modify
 - If invalid plugin names, warn but allow
 
-### Step 6: Set Up Smart Router Early Reminder Hook (Optional)
-
-Ask the user if they want to enable the Smart Router early reminder hook:
-
-```
-Would you like to enable the Smart Router early reminder hook?
-
-This hook reminds Claude to check Smart Router BEFORE making tool decisions.
-It fires when you submit task-related prompts (testing, brainstorming, debugging, etc.)
-
-**Benefits:**
-- Claude checks Smart Router first instead of randomly picking tools
-- You see ALL available tools for your task
-- Better tool selection based on context and preferences
-
-**Smart filtering:**
-- Only fires on task-related prompts (test, brainstorm, debug, etc.)
-- Silent on simple prompts like "what's 2+2" (no spam!)
-
-Options:
-1. yes - Enable the hook (recommended for training mode)
-2. no - Skip hook setup (you can enable it later)
-
-Enable hook?
-```
-
-If user selects "yes", proceed with hook setup:
-
-#### 6.1: Read Existing Settings
-
-**CRITICAL: Never overwrite existing settings.json!**
-
-Check if `.claude/settings.json` exists and read it:
-
-```typescript
-const settingsPath = Path(project_dir) / '.claude' / 'settings.json'
-let currentSettings = {}
-
-if (settingsPath.exists()) {
-    currentSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
-}
-```
-
-#### 6.2: Merge Hook Configuration
-
-Merge the Smart Router hook into existing hooks array:
-
-```python
-# Get CLAUDE_PLUGIN_ROOT from environment
-plugin_root = os.environ.get('CLAUDE_PLUGIN_ROOT', '')
-if not plugin_root:
-    # Fallback: try to locate plugin installation
-    plugin_root = Path.home() / '.claude' / 'plugins' / 'cache' / 'smart-router-marketplace' / 'smart-router' / 'latest'
-
-# Define the hook configuration (UserPromptSubmit for early reminder)
-smart_router_hook = {
-    "matcher": "*",  # Matches all prompts (filtering happens in script)
-    "hooks": [
-        {
-            "type": "command",
-            "command": f"python3 {plugin_root}/hooks/smart-router-enforcer.py",
-            "timeout": 5
-        }
-    ]
-}
-
-# Initialize hooks structure if needed
-if 'hooks' not in currentSettings:
-    currentSettings['hooks'] = {}
-if 'UserPromptSubmit' not in currentSettings['hooks']:
-    currentSettings['hooks']['UserPromptSubmit'] = []
-
-# Check if Smart Router hook already exists
-existing_hooks = currentSettings['hooks']['UserPromptSubmit']
-already_exists = any(
-    'smart-router-enforcer' in str(hook.get('hooks', []))
-    for hook in existing_hooks
-)
-
-if not already_exists:
-    # Add our hook (MERGE, don't replace)
-    currentSettings['hooks']['UserPromptSubmit'].append(smart_router_hook)
-else:
-    # Already exists, update the command path if needed
-    for hook in existing_hooks:
-        for h in hook.get('hooks', []):
-            if 'smart-router-enforcer' in h.get('command', ''):
-                h['command'] = f"python3 {plugin_root}/hooks/smart-router-enforcer.py"
-```
-
-#### 6.3: Write Merged Settings
-
-Write back the merged settings:
-
-```bash
-mkdir -p .claude
-```
-
-Write using Write tool with proper JSON formatting:
-
-```python
-import json
-
-settings_json = json.dumps(currentSettings, indent=2)
-# Write to .claude/settings.json
-```
-
-#### 6.4: Copy Hook Script to Project (Optional)
-
-Ask user if they want to copy the hook script locally:
-
-```
-Copy hook script to project?
-
-Options:
-1. yes - Copy to .claude/hooks/ (recommended for version control)
-2. no - Use plugin's hook directly
-
-Copy hook?
-```
-
-If yes:
-```bash
-mkdir -p .claude/hooks
-cp ${CLAUDE_PLUGIN_ROOT}/hooks/smart-router-enforcer.py .claude/hooks/
-chmod +x .claude/hooks/smart-router-enforcer.py
-```
-
-And update the hook command path to use local copy:
-```
-"command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/smart-router-enforcer.py"
-```
-
-#### 6.5: Show Hook Setup Confirmation
-
-```
-✅ Smart Router Early Reminder Hook Configured
-
-Hook type: UserPromptSubmit (fires before Claude makes decisions)
-Hook location: .claude/settings.json
-Script: [plugin/project location]
-
-The hook will remind Claude to check Smart Router when you submit task-related prompts.
-
-**Smart filtering enabled:**
-- Fires on: test, brainstorm, debug, build, design, etc.
-- Silent on: simple prompts like "what's 2+2"
-
-To disable: Edit .claude/settings.json and remove the UserPromptSubmit hook
-To test: Try a prompt like "I want to test my code" and watch Claude check Smart Router first
-```
-
 ## Related
 
 - `/smart-router:rebuild` - Rebuild plugin registry
 - `smart-router.local.md.example` - All available options
 - Smart Router skill - Uses these settings
-- Hook script: `hooks/smart-router-enforcer.py`
 
 ---
 
@@ -487,4 +334,4 @@ After configuration, test by running a routing scenario:
 "I need a code review"
 ```
 
-Smart Router should now use your configured preferences, and the hook will remind you to check it first.
+Smart Router should now use your configured preferences.
